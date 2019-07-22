@@ -3,9 +3,10 @@ package main
 import(
     "net"
     "log"
-    "encoding/json"
+    "flag"
+    "io"
     "fmt"
-    "util"
+    "encoding/json"
 )
 
 const (
@@ -15,47 +16,44 @@ const (
 )
 
 type Message struct {
-    Addr string
     Body string
 }
 
-// handleRequest handles incoming requests from client to server
-func handleRequest(conn net.Conn) {
-
-   // Creates json decoder on the connection
-   d := json.NewDecoder(conn)
-   var msg Message
-   // Write message in Message.Body
-   err := d.Decode(&msg)
-     if err != nil {
-         log.Println("Error reading:", err)
-     }
-   fmt.Println(msg.Body)
-   // Write the message on user interface
-     _, err = conn.Write([]byte(msg.Body + "\n"))
-     if err != nil {
-         log.Println("Error writing:", err)
-     }
-
-  defer conn.Close()
-}
+var addr = flag.String("addr", HOST+":"+PORT, "host:port - Connect to server")
 
 func main() {
+    flag.Parse()
     // New server
-    server, err := net.Listen(TYPE, HOST+":"+PORT)
+    server, err := net.Listen(TYPE, *addr)
     if err != nil {
         log.Fatal(err)
     }
     defer server.Close()
-    addr, _ := util.Listen()
-    fmt.Println(addr.Addr())
     // Infinite loop waiting for user connection
     for {
         conn, err := server.Accept()
         if err != nil {
             log.Fatal(err)
         }
-        // Define new goroutine foreach connection
-        go handleRequest(conn)
+
+        go request(conn)
     }
+}
+
+func request(conn net.Conn) {
+    defer conn.Close()
+
+    decoder := json.NewDecoder(conn)
+    m := Message{}
+    for {
+        if err := decoder.Decode(&m); err != nil {
+            log.Fatal(err)
+        }
+        fmt.Println(m.Body)
+    }
+
+    fmt.Fprintln(conn, "Welcome on the tchat !")
+
+    io.Copy(conn, conn)
+    conn.Close()
 }
