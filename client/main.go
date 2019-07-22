@@ -1,12 +1,11 @@
 package main
 
 import (
+    "fmt"
     "os"
     "bufio"
-    "encoding/json"
     "log"
-    "github.com/quentinchampenois/whispering-gophers/client/message"
-    "github.com/quentinchampenois/whispering-gophers/client/network"
+    "encoding/json"
 )
 
 type Message struct {
@@ -14,18 +13,19 @@ type Message struct {
 }
 
 func main() {
-    // Define new reader on standard input
-    reader := bufio.NewReader(os.Stdin)
-    // Get user input from previous reader
-    userMsg, err := message.UserReaderMessage(reader)
-    // Message saved in Message.Body
-    msg := Message{Body: userMsg}
-    // JSON encoding
-    jsondata, err := json.Marshal(msg)
-    if err != nil {
+    // Définir un nouveau listener sur l'entrée standard
+    s := bufio.NewScanner(os.Stdin)
+
+    for s.Scan() {
+        fmt.Println("Veuillez écrire votre message : \n")
+        // Définir la sortie d'ecriture sur os.Stdout
+        e := json.NewEncoder(os.Stdout)
+        // On enregistre le message dans le Message.Body
+        m := Message{Body:s.Text()}
+        // Encoder m 
+        e.Encode(m)
+    }
+    if err := s.Err(); err != nil {
         log.Fatal(err)
     }
-
-    // Make tcp connection on localhost:3000 passing jsondata
-    network.TCPConnection("tcp", "localhost:3000", jsondata)
 }

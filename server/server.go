@@ -5,6 +5,7 @@ import(
     "log"
     "encoding/json"
     "fmt"
+    "util"
 )
 
 const (
@@ -14,6 +15,7 @@ const (
 )
 
 type Message struct {
+    Addr string
     Body string
 }
 
@@ -45,7 +47,8 @@ func main() {
         log.Fatal(err)
     }
     defer server.Close()
-
+    addr, _ := util.Listen()
+    fmt.Println(addr.Addr())
     // Infinite loop waiting for user connection
     for {
         conn, err := server.Accept()
