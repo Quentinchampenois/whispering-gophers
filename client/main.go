@@ -3,103 +3,110 @@ package main
 //  Chaque utilisateur à un serveur de réception et communique sur le serveur de l'autre
 
 import (
-    "fmt"
-    "os"
-    "bufio"
-    "log"
-    "encoding/json"
-    "flag"
-    "net"
-    "io"
-    "github.com/campoy/whispering-gophers/util"
+	"bufio"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"github.com/campoy/whispering-gophers/util"
+	"io"
+	"log"
+	"net"
+	"os"
 )
 
-const (
-    HOST = "localhost"
-    PORT = "3000"
-    METHOD = "tcp"
-)
-
-// Définir un flag "-addr" dont la valeur par défaut est "localhost:3000"
 var (
-    addr = flag.String("addr", HOST+":"+PORT, "host:port - Connect to server")
-	dialAddr   = flag.String("dial", HOST+":3001", "host:port listener server")
-    self string;
+	dialAddr = flag.String("dial", "", "host:port listener server")
+	self     string
+	ch = make(chan Message)
 )
+
 type Message struct {
-    Addr string
-    Body string
+	Addr string
+	Body string
 }
 
 func main() {
-    flag.Parse()
+	flag.Parse()
 
+	// New server
+	server, err := util.Listen()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	self = server.Addr().String()
+	log.Println("Listening on ", self)
 
-    // New server
-    server, err := util.Listen()
-    if err != nil {
-        log.Println(err)
-        return
-    }
-    self = server.Addr().String()
-    log.Println("Listening on ", self)
+	go dial(*dialAddr)
+	go readUserMsg()
 
-    go dial(*dialAddr, self)
-    defer server.Close()
-    // Infinite loop waiting for user connection
-    for {
-        conn, err := server.Accept()
-        if err != nil {
-            log.Println(err)
-            return
-        }
+	defer server.Close()
+	// Infinite loop waiting for user connection
+	for {
+		conn, err := server.Accept()
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
-        go request(conn, server.Addr().String())
-    }
+		go request(conn)
+	}
 }
 
-func request(conn net.Conn, lAddr string) {
-    defer conn.Close()
+func request(conn net.Conn) {
+	defer conn.Close()
 
-    decoder := json.NewDecoder(conn)
-    m := Message{}
-    for {
-        if err := decoder.Decode(&m); err != nil {
-            log.Println(err)
-            return
-        }
-        fmt.Println("Message reçu !")
-        fmt.Println(m.Addr)
-        fmt.Println(m.Body)
+	decoder := json.NewDecoder(conn)
+	m := Message{}
+	for {
+		if err := decoder.Decode(&m); err != nil {
+			log.Println(err)
+			return
+		}
+		fmt.Println("Message reçu !")
+		fmt.Println(m.Addr)
+		fmt.Println(m.Body)
 
-    }
+	}
 
-    io.Copy(conn, conn)
-    dial(m.Addr, lAddr)
-    conn.Close()
+	io.Copy(conn, conn)
+	conn.Close()
 }
 
-func dial(addr, lAddr string) {
+func dial(addr string) {
 	c, err := net.Dial("tcp", addr)
 	if err != nil {
 		log.Println(err)
-        return
+		return
 	}
 
-fmt.Println(lAddr)
-	s := bufio.NewScanner(os.Stdin)
+	// Définir où le json doit être écrit
 	e := json.NewEncoder(c)
-    m := Message{Addr: lAddr}
-	for s.Scan() {
-		m.Body = s.Text()
+
+	for m := range ch {
 		err := e.Encode(m)
 		if err != nil {
-			log.Println(err)
-            return
+			log.Fatal(err)
 		}
 	}
-	if err := s.Err(); err != nil {
-		log.Println(err)
-        return
+
+
+}
+
+func readUserMsg() {
+
+	s := bufio.NewScanner(os.Stdin)
+	for s.Scan() {
+		m := Message {
+			Addr: self,
+			Body: s.Text(),
+		}
+		if err := s.Err(); err != nil {
+			log.Fatal(err)
+		}
+
+		// Envoyer le struct Message sur le chan ch de type Message
+		ch <- m
 	}
+
 }
