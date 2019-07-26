@@ -12,17 +12,24 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 )
 
 var (
 	dialAddr = flag.String("dial", "", "host:port listener server")
 	self     string
+	// Si le channel est unbuffered c'est synchrone, à l'inverse c'est asynchrone
 	ch = make(chan Message)
 )
 
 type Message struct {
 	Addr string
 	Body string
+}
+
+type Peers struct {
+	m map[string]chan<- Message
+	mu sync.RWMutex
 }
 
 func main() {
@@ -109,4 +116,34 @@ func readUserMsg() {
 		ch <- m
 	}
 
+}
+
+func (p *Peers) Add(addr string)chan<- Message {
+	defer p.mu.Unlock()
+	p.mu.Lock()
+	if p.m[addr] != nil {
+		return nil
+	}
+	msgCh := make(chan Message)
+	p.m[addr] = msgCh
+	return msgCh
+}
+
+func (p *Peers) Remove(key string) {
+	defer p.mu.Unlock()
+	p.mu.Lock()
+	delete(p.m, key)
+}
+
+func (p *Peers) List() []chan<- Message {
+	defer p.mu.Unlock()
+	p.mu.Lock()
+	// Instanciation d'une variable slice de type []chan<- Message, de taille 0 et de capacité maximale de la taille des adresses
+	slice := make([]chan<- Message, 0, len(p.m))
+
+	for _, ch := range p.m {
+		slice = append(slice, ch)
+	}
+
+	return slice
 }
