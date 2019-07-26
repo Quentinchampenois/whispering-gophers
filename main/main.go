@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/campoy/whispering-gophers/util"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -18,8 +17,7 @@ import (
 var (
 	dialAddr = flag.String("dial", "", "host:port listener server")
 	self     string
-	// Si le channel est unbuffered c'est synchrone, à l'inverse c'est asynchrone
-	ch = make(chan Message)
+	peers = &Peers{m: make(map[string]chan<- Message)}
 )
 
 type Message struct {
@@ -44,7 +42,9 @@ func main() {
 	self = server.Addr().String()
 	log.Println("Listening on ", self)
 
-	go dial(*dialAddr)
+	if *dialAddr != "" {
+		go dial(*dialAddr)
+	}
 	go readUserMsg()
 
 	defer server.Close()
@@ -52,8 +52,7 @@ func main() {
 	for {
 		conn, err := server.Accept()
 		if err != nil {
-			log.Println(err)
-			return
+			log.Fatal(err)
 		}
 
 		go request(conn)
@@ -70,22 +69,34 @@ func request(conn net.Conn) {
 			log.Println(err)
 			return
 		}
+
 		fmt.Println("Message reçu !")
 		fmt.Println(m.Addr)
 		fmt.Println(m.Body)
-
+		go dial(m.Addr)
 	}
 
-	io.Copy(conn, conn)
-	conn.Close()
 }
 
 func dial(addr string) {
-	c, err := net.Dial("tcp", addr)
-	if err != nil {
-		log.Println(err)
+
+	if addr == self {
 		return
 	}
+
+	ch := peers.Add(addr)
+	if ch == nil {
+		return
+	}
+	defer peers.Remove(addr)
+
+	c, err := net.Dial("tcp", addr)
+	if err != nil {
+		log.Println(addr, err)
+		return
+	}
+
+	defer c.Close()
 
 	// Définir où le json doit être écrit
 	e := json.NewEncoder(c)
@@ -93,11 +104,21 @@ func dial(addr string) {
 	for m := range ch {
 		err := e.Encode(m)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(addr, err)
+			return
 		}
 	}
+}
 
-
+func broadcast(m Message) {
+	for _, ch := range peers.List() {
+		select {
+		case ch <- m:
+			fmt.Println("Sent message ", m.Body)
+		default:
+			fmt.Println("Message not sent")
+		}
+	}
 }
 
 func readUserMsg() {
@@ -113,19 +134,21 @@ func readUserMsg() {
 		}
 
 		// Envoyer le struct Message sur le chan ch de type Message
-		ch <- m
+		broadcast(m)
 	}
 
 }
 
-func (p *Peers) Add(addr string)chan<- Message {
+func (p *Peers) Add(addr string) <-chan Message {
 	defer p.mu.Unlock()
 	p.mu.Lock()
-	if p.m[addr] != nil {
+	if _, ok := p.m[addr]; ok {
 		return nil
 	}
 	msgCh := make(chan Message)
 	p.m[addr] = msgCh
+
+	fmt.Println(len(p.m))
 	return msgCh
 }
 
@@ -139,7 +162,7 @@ func (p *Peers) List() []chan<- Message {
 	defer p.mu.Unlock()
 	p.mu.Lock()
 	// Instanciation d'une variable slice de type []chan<- Message, de taille 0 et de capacité maximale de la taille des adresses
-	slice := make([]chan<- Message, 0, len(p.m))
+	var slice []chan<- Message
 
 	for _, ch := range p.m {
 		slice = append(slice, ch)
