@@ -21,6 +21,7 @@ var (
 )
 
 type Message struct {
+	ID string
 	Addr string
 	Body string
 }
@@ -46,7 +47,7 @@ func main() {
 		go dial(*dialAddr)
 	}
 	go readUserMsg()
-
+	
 	defer server.Close()
 	// Infinite loop waiting for user connection
 	for {
@@ -69,7 +70,9 @@ func request(conn net.Conn) {
 			log.Println(err)
 			return
 		}
-
+		if Seen(m.ID) {
+			continue
+		} 
 		fmt.Println("Message reçu !")
 		fmt.Println(m.Addr)
 		fmt.Println(m.Body)
@@ -126,13 +129,14 @@ func readUserMsg() {
 	s := bufio.NewScanner(os.Stdin)
 	for s.Scan() {
 		m := Message {
+			ID: util.RandomID(),
 			Addr: self,
 			Body: s.Text(),
 		}
 		if err := s.Err(); err != nil {
 			log.Fatal(err)
 		}
-
+		Seen(m.ID)
 		// Envoyer le struct Message sur le chan ch de type Message
 		broadcast(m)
 	}
@@ -169,4 +173,17 @@ func (p *Peers) List() []chan<- Message {
 	}
 
 	return slice
+}
+
+var seenIDs = struct{
+	m map[string]bool
+	sync.Mutex
+}{m: make(map[string]bool)}
+
+func Seen(id string) bool {
+	seenIDs.Lock()
+	ok := seenIDs.m[id]
+	seenIDs.m[id] = true
+	seenIDs.Unlock()
+	return ok
 }
